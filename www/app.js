@@ -367,14 +367,26 @@ $('ctaBtn').onclick = async () => {
 };
 
 // --- Mode trajet ---------------------------------------------------------------------------------
-// trip = {plan, destName, leg, phase: 'retrait' | 'velo', start, history} ; enregistré : Android peut fermer l'appli.
-// history garde les états précédents pour revenir en arrière après une fausse manip.
+// trip = {plan, destName, leg, phase: 'retrait' | 'velo', start, history, future} ; enregistré : Android peut
+// fermer l'appli. history : états précédents (‹ annule une fausse manip) ; future : états annulés (› les refait).
 
 let trip = null;
 const HISTORY_MAX = 20;
-/** Avance le trajet en gardant l'état courant dans l'historique. */
-const advance = changes => setTrip({ ...trip, ...changes,
-  history: [...(trip.history ?? []), { ...trip, history: undefined }].slice(-HISTORY_MAX) });
+const snapshot = t => ({ ...t, history: undefined, future: undefined });
+/** Avance le trajet en gardant l'état courant dans l'historique ; une nouvelle action efface ce qui était à refaire. */
+const advance = changes => setTrip({ ...trip, ...changes, future: [],
+  history: [...(trip.history ?? []), snapshot(trip)].slice(-HISTORY_MAX) });
+
+// les alertes suivent l'état affiché : chrono de la location d'alors, ou rien si pas encore à vélo
+const syncAlerts = t => t.phase === 'velo' ? scheduleAlerts(t.start) : cancelAlerts();
+
+async function onForward() {
+  const next = trip.future?.at(-1);
+  if (!next) return;
+  setTrip({ ...next, history: [...(trip.history ?? []), snapshot(trip)], future: trip.future.slice(0, -1) });
+  await syncAlerts(next);
+  tripMsg('Étape refaite.');
+}
 
 async function onBack() {
   if (!trip.history?.length) { // tout début du trajet : retour à l'aperçu de l'itinéraire
@@ -387,9 +399,8 @@ async function onBack() {
     return show('route', 'half');
   }
   const prev = trip.history.at(-1);
-  setTrip({ ...prev, history: trip.history.slice(0, -1) });
-  // les alertes suivent l'état restauré : chrono de la location d'alors, ou rien si pas encore à vélo
-  if (prev.phase === 'velo') await scheduleAlerts(prev.start); else await cancelAlerts();
+  setTrip({ ...prev, history: trip.history.slice(0, -1), future: [...(trip.future ?? []), snapshot(trip)] });
+  await syncAlerts(prev);
   tripMsg('Retour à l\'étape précédente.');
 }
 
@@ -419,6 +430,7 @@ function renderTrip() {
   const { plan: p, leg: i, phase } = trip, l = p.legs[i], last = i === p.legs.length - 1;
   $('tripStep').textContent = `Étape ${i + 1} sur ${p.legs.length} · vers ${trip.destName ?? 'l\'arrivée'}`;
   $('chronoBox').hidden = phase !== 'velo';
+  $('forward').disabled = !trip.future?.length;
   $('back').setAttribute('aria-label', trip.history?.length ? 'Revenir à l\'étape précédente' : 'Revenir à l\'itinéraire');
   if (phase === 'retrait') {
     const relay = i > 0;
@@ -496,6 +508,7 @@ $('reroute').onclick = async () => {
   show('route', 'half');
 };
 $('back').onclick = onBack;
+$('forward').onclick = onForward;
 $('stop').onclick = () => { if (confirm('Arrêter le trajet ?')) setTrip(null); };
 
 function tick() {
