@@ -212,10 +212,12 @@ function show(v, state) {
   $('sheet').classList.toggle('has-cta', !!cta);
   if (cta) $('ctaBtn').textContent = routeState.reroute ? 'Suivre cet itinéraire' : 'Démarrer le trajet';
   requestAnimationFrame(() => {
-    // replié = la vue entière pour le trajet et le choix sur la carte, l'en-tête seulement sinon
-    const top = ['trip', 'pick'].includes(v) ? $(v) : $(v).querySelector('[data-drag]') ?? $(v);
-    const extra = v === 'home' ? $('favChips').offsetHeight + $('msg').offsetHeight + 64 : 28;
-    sheet.setPeek(document.querySelector('.handle-zone').offsetHeight + top.offsetHeight + extra);
+    // replié = jusqu'au bas du dernier élément utile, plus la barre de gestes d'Android
+    const last = { home: '.settings summary', route: '.route-head' }[v];
+    const el = last ? $(v).querySelector(last) : $(v);
+    const body = $('sheet').querySelector('.sheet-body');
+    const bottom = el.getBoundingClientRect().bottom - $('sheet').getBoundingClientRect().top + body.scrollTop;
+    sheet.setPeek(bottom + parseFloat(getComputedStyle(body).paddingBottom));
     sheet.set(state ?? 'peek');
   });
 }
