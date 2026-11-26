@@ -4,7 +4,9 @@
 export const FREE = 30 * 60;        // secondes gratuites par location
 export const LEG_MAX = 25 * 60;     // 5 min de marge
 export const RELAY_S = 90;          // déposer puis reprendre son vélo
-export const RISK_PENALTY = 180;    // borne risquée : choisie seulement si elle fait gagner > 3 min
+// Pénalité selon les vélos (retrait) ou places (dépôt) annoncés : à quelques minutes près, on préfère la
+// borne la mieux fournie (ADR 0006). 1 seul = borne risquée.
+export const supplyPenalty = n => n <= 1 ? 300 : n === 2 ? 120 : 0;
 export const WALK_MAX_M = 1500;     // marche max (vol d'oiseau) vers/depuis une borne
 export const BACKUP_M = 400;
 export const MUTE_S = 30 * 60;      // borne muette au-delà
@@ -54,8 +56,8 @@ export function plan(stations, status, dur, origin, dest, { riding = null, exclu
   const st = stations.map(s => exclude.has(s.id) ? null : status[s.id]);
   const canRent = i => !!st[i]?.renting && st[i].classic >= 1;      // premier retrait
   const canReturn = i => !!st[i]?.returning && st[i].docks >= 1;
-  const rentRisk = i => st[i].classic === 1 ? RISK_PENALTY : 0;
-  const returnRisk = i => st[i].docks === 1 ? RISK_PENALTY : 0;
+  const rentRisk = i => supplyPenalty(st[i].classic);
+  const returnRisk = i => supplyPenalty(st[i].docks);
 
   // Nœuds : i = vélo déposé à la borne i ; n+i = vélo en main à la borne i ; S départ ; E arrivée.
   // Chaque arc porte [nœud, coût (avec pénalités), durée réelle].

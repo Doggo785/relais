@@ -160,3 +160,11 @@ test('pas d\'alternative pour un trajet à pied', () => {
   const best = route(net, MERIGNAC, [MERIGNAC[0] + 0.002, MERIGNAC[1]]);
   assert.deepEqual(alternatives(net.stations, net.status, net.dur, MERIGNAC, [MERIGNAC[0] + 0.002, MERIGNAC[1]], {}, best), []);
 });
+
+test('à temps presque égal, la borne la mieux fournie est préférée', () => {
+  const net = lineNetwork();
+  net.status['0'].classic = 2;
+  // 4 vélos, ~110 m plus loin (≈ 1,7 min de marche) : moins que l'écart de pénalité entre 2 vélos et 3+
+  addStation(net, { id: 'fournie', name: 'Fournie', lat: MERIGNAC[0] + 0.001, lon: MERIGNAC[1] }, { classic: 4, docks: 4, renting: true, returning: true });
+  assert.equal(route(net).legs[0].from.id, 'fournie');
+});

@@ -19,7 +19,7 @@ Appli Android (Capacitor), sans serveur. Décisions : [`docs/adr/`](docs/adr/). 
 
 **v1**
 - Carte, recherche d'adresse, position GPS, itinéraire découpé en étapes avec relais.
-- Bornes sûres, bornes risquées (badge ⚠, pénalité de 3 min), bornes de secours au retrait et au dépôt,
+- Bornes sûres, bornes risquées (badge ⚠), préférence pour les bornes les mieux fournies, bornes de secours au retrait et au dépôt,
   bornes muettes ignorées.
 - Boutons « Borne pleine », « Aucun vélo ne se débloque », signalement d'une borne (évitée 2 h),
   « Débloquer » (ouvre l'appli TBM), « Naviguer » (ouvre Google Maps en mode vélo).
