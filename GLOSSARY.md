@@ -71,6 +71,10 @@ Borne qui annonce au moins 2 vélos classiques pour le premier retrait, ou au mo
 **Borne risquée**:
 Borne utilisable qui n'annonce qu'un vélo classique (retrait) ou qu'une place libre (dépôt), donc peut décevoir.
 
+**Niveau de confiance**:
+Couleur d'une borne sur la carte, d'après le moins fourni de ses vélos classiques et places libres : vert (3 ou plus), orange (2), rouge (0 ou 1), gris (muette ou fermée).
+_Avoid_: fiabilité, score
+
 **Borne de secours**:
 Borne à moins de 400 m d'une borne de l'itinéraire, utilisable si celle-ci fait défaut.
 _Avoid_: borne de repli, alternative

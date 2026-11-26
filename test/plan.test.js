@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { plan, alternatives, parseStatus, NoRoute, LEG_MAX, FREE, ALT_MAX_MIN, bikeEstS, distM } from '../www/plan.js';
+import { plan, alternatives, parseStatus, confidence, NoRoute, LEG_MAX, FREE, ALT_MAX_MIN, bikeEstS, distM } from '../www/plan.js';
 
 const MERIGNAC = [44.8386, -0.6436];
 const LORMONT = [44.8790, -0.5217];
@@ -185,4 +185,14 @@ test('pas d\'alternative « Plus sûr » si l\'itinéraire est déjà sûr', () 
   const net = lineNetwork();
   const best = route(net);
   assert.ok(!alternatives(net.stations, net.status, net.dur, MERIGNAC, LORMONT, {}, best).some(a => a.label === 'Plus sûr'));
+});
+
+test('niveau de confiance d\'une borne', () => {
+  const st = (classic, docks, open = true) => ({ classic, docks, renting: open, returning: open });
+  assert.equal(confidence(st(5, 8)), 'ok');
+  assert.equal(confidence(st(2, 8)), 'mid');
+  assert.equal(confidence(st(8, 1)), 'low');  // presque pleine : pas fiable pour déposer
+  assert.equal(confidence(st(0, 20)), 'low'); // vide : pas fiable pour retirer
+  assert.equal(confidence(st(5, 8, false)), 'off');
+  assert.equal(confidence(undefined), 'off'); // muette
 });

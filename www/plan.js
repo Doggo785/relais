@@ -13,6 +13,13 @@ export const MUTE_S = 30 * 60;      // borne muette au-delà
 
 export class NoRoute extends Error {}
 
+/** Niveau de confiance d'une borne (GLOSSARY.md) : d'après le moins fourni de ses vélos classiques et places libres. */
+export function confidence(s) {
+  if (!s || !s.renting || !s.returning) return 'off';
+  const n = Math.min(s.classic, s.docks);
+  return n >= 3 ? 'ok' : n === 2 ? 'mid' : 'low';
+}
+
 export function distM([la1, lo1], [la2, lo2]) {
   const r = Math.PI / 180;
   const a = Math.sin((la2 - la1) * r / 2) ** 2 +
