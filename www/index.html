@@ -2,73 +2,73 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="color-scheme" content="light dark">
 <title>Relais</title>
 <link rel="icon" href="icon.svg">
 <link rel="stylesheet" href="vendor/leaflet.css">
-<style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; font: 16px/1.4 system-ui, sans-serif; color: #1a1a1a; }
-  body { display: flex; flex-direction: column; padding-top: env(safe-area-inset-top); }
-  #map { flex: 1 1 40%; min-height: 180px; }
-  #panel { flex: 0 1 auto; max-height: 62%; overflow-y: auto; padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); background: #fff; box-shadow: 0 -2px 8px #0002; }
-  input, button, select { font: inherit; min-height: 48px; border-radius: 10px; }
-  input, select { width: 100%; padding: 0 12px; border: 1px solid #999; background: #fff; }
-  button { border: 0; padding: 0 14px; background: #e8efe9; cursor: pointer; }
-  button.main { width: 100%; background: #0a7d4f; color: #fff; font-weight: 600; }
-  button.warn { background: #fde2e1; }
-  button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #f5a300; outline-offset: 1px; }
-  .row { display: flex; gap: 8px; margin-bottom: 8px; }
-  .row > * { flex: 1; }
-  .row > #gps { flex: 0 0 48px; }
-  #msg:empty { display: none; }
-  #msg { padding: 8px; background: #fff4d6; border-radius: 8px; margin: 8px 0; }
-  ol { padding-left: 0; list-style: none; margin: 8px 0; }
-  li { padding: 8px 0 8px 12px; border-left: 6px solid #bbb; margin-bottom: 6px; }
-  li .row { margin: 6px 0 0; }
-  .small { font-size: 14px; color: #555; }
-  .risk { color: #a14b00; font-weight: 600; }
-  .sum { font-weight: 600; font-size: 18px; margin: 6px 0; }
-  #chrono { font-size: 56px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
-  #chrono.warn { color: #a14b00; } #chrono.alert { color: #c00; }
-  #alert { text-align: center; font-weight: 600; min-height: 1.4em; margin: 0; }
-  details { margin: 8px 0; } summary { min-height: 32px; cursor: pointer; }
-  .note { font-size: 13px; color: #555; margin: 10px 0 0; }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="map" role="region" aria-label="Carte"></div>
-<section id="panel">
-  <form id="search">
-    <div class="row">
-      <input id="from" list="sugg" placeholder="Départ (adresse)" autocomplete="off" aria-label="Départ">
-      <button type="button" id="gps" aria-label="Utiliser ma position comme départ">📍</button>
+<div id="crosshair" class="crosshair" aria-hidden="true" hidden>📍</div>
+
+<section id="sheet" class="sheet" aria-label="Itinéraire">
+  <div class="handle-zone" role="button" aria-label="Agrandir ou réduire le panneau"><div class="handle"></div></div>
+  <div class="sheet-body">
+
+    <div id="home" data-view>
+      <div class="places" data-drag>
+        <div class="places-fields">
+          <button class="place-field" id="fromField"><span class="dot from"></span><span class="label"></span></button>
+          <button class="place-field" id="toField"><span class="dot to"></span><span class="label empty">Où vas-tu ?</span></button>
+        </div>
+        <button class="icon-btn" id="swap" aria-label="Inverser départ et arrivée">⇅</button>
+      </div>
+      <div class="chips" id="favChips"></div>
+      <div id="msg" role="status" aria-live="polite"></div>
+      <details class="settings">
+        <summary>Réglages</summary>
+        <label for="profil" class="small muted">Je suis</label>
+        <select id="profil">
+          <option value="abonne">abonné Le Vélo (ou abonné annuel TBM)</option>
+          <option value="occasionnel">occasionnel (1 € par location)</option>
+        </select>
+        <p class="note">Les 30 premières minutes de chaque location d'un vélo <strong>classique</strong> sont gratuites
+          (CGV TBM). Les occasionnels paient 1 € par location. Au-delà de 30 min, la location est facturée.
+          Relais n'est pas une appli officielle TBM.</p>
+      </details>
     </div>
-    <div class="row"><input id="to" list="sugg" placeholder="Arrivée (adresse)" autocomplete="off" aria-label="Arrivée"></div>
-    <datalist id="sugg"></datalist>
-    <button class="main">Calculer l'itinéraire</button>
-  </form>
-  <div id="msg" role="status" aria-live="polite"></div>
-  <div id="result" hidden></div>
-  <div id="trip" hidden>
-    <p id="tripTitle" class="sum"></p>
-    <p id="tripInfo" class="small"></p>
-    <div id="chrono" aria-live="off" hidden>00:00</div>
-    <p id="alert" role="alert"></p>
-    <div id="tripButtons"></div>
-    <div class="row"><button id="stop">Arrêter le trajet</button></div>
+
+    <div id="route" data-view hidden></div>
+
+    <div id="pick" data-view hidden>
+      <p class="trip-title" data-drag>Placez le repère</p>
+      <p class="trip-info">Déplacez la carte pour mettre le repère sur le lieu voulu.</p>
+      <div class="btn-row"><button class="btn" id="pickCancel">Annuler</button><button class="btn primary" id="pickOk">Valider ce point</button></div>
+    </div>
+
+    <div id="trip" data-view hidden>
+      <div data-drag>
+        <div class="trip-step" id="tripStep"></div>
+        <div class="trip-title" id="tripTitle"></div>
+        <div class="trip-info" id="tripInfo"></div>
+      </div>
+      <div id="chronoBox" hidden>
+        <div class="chrono" id="chrono" aria-live="off">00:00</div>
+        <div class="free-bar" id="freeBar" aria-hidden="true"><div></div></div>
+        <div class="small muted" id="freeLeft" style="text-align:center"></div>
+        <p class="trip-alert" id="tripAlert" role="alert"></p>
+      </div>
+      <div id="tripButtons"></div>
+      <div id="tripMsg" class="small muted" role="status" aria-live="polite"></div>
+      <button class="link-btn" id="reroute">Changer d'itinéraire</button>
+      <button class="link-btn" id="stop">Arrêter le trajet</button>
+    </div>
+
   </div>
-  <details>
-    <summary>Réglages</summary>
-    <label for="profil">Je suis</label>
-    <select id="profil">
-      <option value="abonne">abonné Le Vélo (ou abonné annuel TBM)</option>
-      <option value="occasionnel">occasionnel (1 € par location)</option>
-    </select>
-  </details>
-  <p class="note">Les 30 premières minutes de chaque location d'un vélo <strong>classique</strong> sont gratuites
-    (CGV TBM). Les occasionnels paient 1 € par location. Au-delà de 30 min, la location est facturée.</p>
 </section>
+<div id="cta" class="cta-bar" hidden><button class="btn primary" id="ctaBtn"></button></div>
 <script src="vendor/capacitor.js"></script>
 <script src="vendor/leaflet.js"></script>
 <script type="module" src="app.js"></script>

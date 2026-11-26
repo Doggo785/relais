@@ -1,4 +1,8 @@
-import { plan, parseStatus, NoRoute } from './plan.js';
+import { plan, alternatives, parseStatus, NoRoute, FREE } from './plan.js';
+import { placeFromShared, reverse } from './places.js';
+import { createSheet } from './sheet.js';
+import { openSearch, favorites, recents, placeLabel } from './search-screen.js';
+import { renderRoute, cost, LEG_COLORS } from './route-view.js';
 
 const GBFS = f => `https://bdx.mecatran.com/utw/ws/gbfs/bordeaux/v3/${f}.json?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt`;
 const OSRM = 'https://routing.openstreetmap.de/routed-bike';
@@ -6,18 +10,17 @@ const OSRM = 'https://routing.openstreetmap.de/routed-bike';
 const MATRIX_URLS = ['matrix.json'];
 const TBM_PACKAGE = 'com.infotbm.tbm';
 const SIGNAL_MS = 2 * 3600e3;
-const COLORS = ['#d7263d', '#1b73e8', '#0a7d4f', '#f46036', '#7b2cbf', '#2e294e'];
 
 const $ = id => document.getElementById(id);
-const esc = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const msg = t => { $('msg').textContent = t || ''; };
 const store = {
   get: (k, d) => { try { return JSON.parse(localStorage.getItem(`relais.${k}`)) ?? d; } catch { return d; } },
   set: (k, v) => v == null ? localStorage.removeItem(`relais.${k}`) : localStorage.setItem(`relais.${k}`, JSON.stringify(v)),
 };
 const cap = window.Capacitor;
-const plugins = cap?.isNativePlatform?.()
-  ? { LocalNotifications: cap.registerPlugin('LocalNotifications'), AppLauncher: cap.registerPlugin('AppLauncher') } : {};
+const plugins = cap?.isNativePlatform?.() ? Object.fromEntries(
+  ['LocalNotifications', 'AppLauncher', 'IncomingShare', 'CapacitorHttp'].map(n => [n, cap.registerPlugin(n)])) : {};
 
 // --- Données -------------------------------------------------------------------------------------
 
@@ -52,35 +55,46 @@ function signaled() {
 }
 const signal = id => store.set('signalees', { ...store.get('signalees', {}), [id]: Date.now() + SIGNAL_MS });
 
-async function legGeometry(a, b) {
-  try {
-    const r = await getJson(`${OSRM}/route/v1/bike/${a.lon},${a.lat};${b.lon},${b.lat}?overview=full&geometries=geojson`);
-    return r.routes[0].geometry.coordinates.map(([lo, la]) => [la, lo]);
-  } catch { return [[a.lat, a.lon], [b.lat, b.lon]]; } // tracé à vol d'oiseau en secours
+async function withGeometry(p) {
+  await Promise.all(p.legs.map(async l => {
+    if (l.geometry) return;
+    try {
+      const r = await getJson(`${OSRM}/route/v1/bike/${l.from.lon},${l.from.lat};${l.to.lon},${l.to.lat}?overview=full&geometries=geojson`);
+      l.geometry = r.routes[0].geometry.coordinates.map(([lo, la]) => [la, lo]);
+    } catch { l.geometry = [[l.from.lat, l.from.lon], [l.to.lat, l.to.lon]]; } // vol d'oiseau en secours
+  }));
+  return p;
 }
 
-async function compute(from, to, { riding = null, exclude = [] } = {}) {
-  msg('Calcul…');
+/** Meilleur itinéraire et alternatives, ou null (message affiché par `say`). */
+async function computeRoutes(from, to, { riding = null, exclude = [] } = {}, say = msg) {
+  say('Calcul…');
   try {
     if (!net) await loadMatrix();
     await loadStatus();
-  } catch { msg('Données TBM injoignables : vérifiez la connexion.'); return null; }
+  } catch { say('Données TBM injoignables : vérifiez la connexion.'); return null; }
+  const opts = { riding, exclude: new Set([...signaled(), ...exclude]) };
   try {
-    const res = plan(net.stations, status, net.dur, from, to, { riding, exclude: new Set([...signaled(), ...exclude]) });
-    await Promise.all(res.legs.map(async l => { l.geometry = await legGeometry(l.from, l.to); }));
-    res.statusAt = statusAt;
-    msg('');
-    return res;
+    const best = plan(net.stations, status, net.dur, from, to, opts);
+    const routes = [best, ...alternatives(net.stations, status, net.dur, from, to, opts, best)];
+    await withGeometry(best);
+    say('');
+    return { routes, freshAt: statusAt };
   } catch (e) {
-    msg(e instanceof NoRoute ? e.message : 'Erreur de calcul.');
+    say(e instanceof NoRoute ? e.message : 'Erreur de calcul.');
     return null;
   }
 }
 
 // --- Appareil : GPS, applis externes, alertes ----------------------------------------------------
 
-const here = () => new Promise((ok, ko) => navigator.geolocation.getCurrentPosition(
-  p => ok([p.coords.latitude, p.coords.longitude]), ko, { enableHighAccuracy: true, timeout: 10000 }));
+let lastPos = null;
+const here = () => new Promise((ok, ko) => navigator.geolocation.getCurrentPosition(p => {
+  lastPos = [p.coords.latitude, p.coords.longitude];
+  showPosition();
+  ok(lastPos);
+}, ko, { enableHighAccuracy: true, timeout: 10000 }));
+const posOr = async s => { try { return await here(); } catch { return [s.lat, s.lon]; } };
 
 async function openExternal(url) {
   if (plugins.AppLauncher) await plugins.AppLauncher.openUrl({ url });
@@ -91,7 +105,7 @@ const navigate = (p, mode = 'bicycling') =>
 
 async function openTbm() {
   try {
-    if (!plugins.AppLauncher || !(await plugins.AppLauncher.openUrl({ url: TBM_PACKAGE })).completed) throw 0;
+    if (!plugins.AppLauncher || !(await plugins.AppLauncher.openUrl({ url: TBM_PACKAGE })).completed) throw new Error();
   } catch { openExternal(`https://play.google.com/store/apps/details?id=${TBM_PACKAGE}`); }
 }
 
@@ -111,166 +125,265 @@ async function scheduleAlerts(start) {
 const cancelAlerts = async () => LN() && LN().cancel({ notifications: ALERTS.map(a => ({ id: a.id })) });
 
 async function ensureAlertPermissions() {
-  if (!LN()) return true;
+  if (!LN()) return;
   if ((await LN().requestPermissions()).display !== 'granted') {
-    msg('Notifications refusées : les alertes de 20 et 25 min ne sonneront pas.');
-    return false;
+    return msg('Notifications refusées : les alertes de 20 et 25 min ne sonneront pas.');
   }
   if ((await LN().checkExactNotificationSetting?.())?.exact_alarm === 'denied') {
     msg('Autorisez « Alarmes et rappels » pour Relais : sans ça, les alertes peuvent arriver en retard.');
     await LN().changeExactNotificationSetting();
   }
-  return true;
 }
 
-// --- Carte et recherche --------------------------------------------------------------------------
+// --- Carte ---------------------------------------------------------------------------------------
 
-const map = L.map('map').setView([44.8378, -0.5792], 13);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19, attribution: '© contributeurs OpenStreetMap',
+const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([44.8378, -0.5792], 13);
+L.control.attribution({ prefix: false, position: 'topright' }).addTo(map);
+// Plan IGN : gratuit, sans clé (Licence Ouverte) ; le thème sombre l'inverse en CSS (style.css)
+L.tileLayer('https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2' +
+  '&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
+  maxZoom: 19, attribution: '© <a href="https://www.ign.fr/">IGN</a>',
 }).addTo(map);
-const layer = L.layerGroup().addTo(map);
+const routeLayer = L.layerGroup().addTo(map);
+let posMarker = null;
 
-const pts = { from: null, to: null };
-const sugg = {};
-let timer;
-
-for (const k of ['from', 'to']) {
-  $(k).addEventListener('input', e => {
-    const q = e.target.value;
-    pts[k] = sugg[q] || null;
-    if (pts[k] || q.length < 3) return;
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
-      // Géoplateforme IGN (successeur de l'API Adresse) ; lat/lon ne fait que favoriser la zone
-      const r = await getJson(`https://data.geopf.fr/geocodage/search?limit=15&lat=44.84&lon=-0.58&q=${encodeURIComponent(q)}`).catch(() => null);
-      if (!r) return msg('Recherche d\'adresse indisponible.');
-      const near = r.features.filter(({ geometry: { coordinates: [lon, lat] } }) => lat > 44.6 && lat < 45.1 && lon > -0.95 && lon < -0.25);
-      msg(near.length ? '' : 'Aucune adresse trouvée dans la métropole.');
-      $('sugg').replaceChildren(...near.slice(0, 5).map(f => {
-        sugg[f.properties.label] = [f.geometry.coordinates[1], f.geometry.coordinates[0]];
-        return new Option(f.properties.label);
-      }));
-    }, 300);
-  });
+function showPosition() {
+  if (!lastPos) return;
+  posMarker ??= L.circleMarker(lastPos, { radius: 8, color: '#fff', weight: 3, fillColor: '#2f80ed', fillOpacity: 1 }).addTo(map);
+  posMarker.setLatLng(lastPos);
 }
 
-$('gps').onclick = async () => {
-  try { pts.from = await here(); $('from').value = 'Ma position'; } catch { msg('Position GPS indisponible.'); }
-};
+const dot = (ll, fill, title) => L.circleMarker(ll, { radius: 9, color: '#fff', weight: 3, fillColor: fill, fillOpacity: 1 })
+  .bindTooltip(esc(title)).addTo(routeLayer);
 
-$('search').onsubmit = async e => {
-  e.preventDefault();
-  if (!pts.from || !pts.to) return msg('Choisissez un départ et une arrivée dans les suggestions.');
-  const res = await compute(pts.from, pts.to);
-  if (res) { setTrip(null); show(res); }
-};
+function fit(bounds) {
+  map.invalidateSize();
+  map.fitBounds(bounds, { paddingTopLeft: [24, 48], paddingBottomRight: [24, sheet.visible + 24], maxZoom: 16 });
+}
 
-$('profil').value = store.get('profil', 'abonne');
-$('profil').onchange = () => { store.set('profil', $('profil').value); if (current) show(current); };
-
-// --- Affichage d'un itinéraire -------------------------------------------------------------------
-
-let current = null; // itinéraire affiché
-
-const cost = p => $('profil').value === 'occasionnel' ? `${p.newRentals} €` : '0 €';
-const plural = (n, w) => `${n} ${n > 1 ? w.replace(/(\S+)/g, '$1s') : w}`;
-const rentTxt = s => `${esc(s.name)} <span class="small">(${plural(s.classic, 'vélo classique')})</span>` +
-  (s.risky ? ' <span class="risk">⚠ risqué : 1 seul vélo annoncé</span>' : '');
-const returnTxt = s => `${esc(s.name)} <span class="small">(${plural(s.docks, 'place')})</span>` +
-  (s.risky ? ' <span class="risk">⚠ risqué : 1 seule place annoncée</span>' : '');
-const backupTxt = (list, txt) => list?.length
-  ? `<br><span class="small">Secours : ${list.map(txt).join(' · ')}</span>`
-  : '<br><span class="small">Pas de borne de secours à moins de 400 m</span>';
-
-function show(p) {
-  current = p;
-  layer.clearLayers();
-  const dash = (a, b) => L.polyline([a, b], { color: '#555', dashArray: '6 8', weight: 3 }).addTo(layer);
+function drawRoute(p) {
+  routeLayer.clearLayers();
+  const walk = (a, b) => L.polyline([a, b], { color: '#6b7280', dashArray: '2 9', weight: 4, lineCap: 'round' }).addTo(routeLayer);
   const legs = p.legs;
-  if (legs.length && p.walkStartMin) dash(p.origin, [legs[0].from.lat, legs[0].from.lon]);
+  if (legs.length && !legs[0].from.current) walk(p.origin, [legs[0].from.lat, legs[0].from.lon]);
   legs.forEach((l, i) => {
-    L.polyline(l.geometry, { color: COLORS[i % COLORS.length], weight: 6 }).addTo(layer);
-    L.circleMarker([l.to.lat, l.to.lon], { radius: 8, color: COLORS[i % COLORS.length], fillOpacity: 1 })
-      .bindPopup(esc(l.to.name)).addTo(layer);
+    L.polyline(l.geometry, { color: '#fff', weight: 9, opacity: 0.9 }).addTo(routeLayer); // liseré, lisible sur tout fond
+    L.polyline(l.geometry, { color: LEG_COLORS[i % LEG_COLORS.length], weight: 5 }).addTo(routeLayer);
   });
-  if (legs.length) dash([legs.at(-1).to.lat, legs.at(-1).to.lon], p.dest); else dash(p.origin, p.dest);
-  L.marker(p.origin, { title: 'Départ' }).addTo(layer);
-  L.marker(p.dest, { title: 'Arrivée' }).addTo(layer);
-
-  let h = `<p class="sum">${Math.round(p.totalMin)} min · ${p.relays} relais · ${cost(p)}</p>`;
-  if (!legs.length) h += '<p>Le plus rapide est d\'y aller à pied.</p>';
-  h += '<ol>';
-  if (legs.length && !legs[0].from.current) {
-    h += `<li>${p.walkStartMin ? `🚶 ${Math.round(p.walkStartMin)} min jusqu'à ` : 'Retrait à '}${rentTxt(legs[0].from)}${backupTxt(legs[0].from.backups, rentTxt)}</li>`;
-  }
+  if (legs.length) walk([legs.at(-1).to.lat, legs.at(-1).to.lon], p.dest); else walk(p.origin, p.dest);
   legs.forEach((l, i) => {
-    const last = i === legs.length - 1;
-    h += `<li style="border-color:${COLORS[i % COLORS.length]}"><strong>Étape ${i + 1} : ${esc(l.from.name)} → ${esc(l.to.name)} (${Math.round(l.min)} min)</strong><br>
-      ${last ? 'Dépôt' : 'Relais (déposez puis reprenez votre vélo)'} : ${returnTxt(l.to)}${backupTxt(l.backups, returnTxt)}</li>`;
+    if (i === 0 && !l.from.current) dot([l.from.lat, l.from.lon], LEG_COLORS[0], `Retrait · ${l.from.name}`);
+    dot([l.to.lat, l.to.lon], LEG_COLORS[(i + 1) % LEG_COLORS.length], `${i === legs.length - 1 ? 'Dépôt' : 'Relais'} · ${l.to.name}`);
   });
-  if (legs.length && p.walkEndMin) h += `<li>🚶 ${Math.round(p.walkEndMin)} min jusqu'à l'arrivée</li>`;
-  h += `</ol><p class="small">Disponibilités relevées à ${new Date(p.statusAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}.</p>`;
-  if (legs.length && !trip) h += '<button class="main" id="start">Démarrer le trajet</button>';
-  $('result').innerHTML = h;
-  $('result').hidden = false;
-  $('start')?.addEventListener('click', async () => {
-    await ensureAlertPermissions();
-    setTrip({ plan: p, leg: 0, phase: legs[0].from.current ? 'velo' : 'retrait', start: Date.now() });
-  });
-  map.invalidateSize(); // le panneau a grandi, la carte a rétréci
-  map.fitBounds(L.featureGroup(layer.getLayers()).getBounds(), { padding: [20, 20] });
+  dot(p.origin, '#6b7280', 'Départ');
+  dot(p.dest, '#111827', 'Arrivée');
+  fit(L.featureGroup(routeLayer.getLayers()).getBounds());
 }
+
+// Appui long sur la carte : partir d'ici / aller ici
+map.on('contextmenu', async e => {
+  if (trip) return;
+  const ll = [e.latlng.lat, e.latlng.lng];
+  const box = document.createElement('div');
+  box.className = 'map-popup';
+  box.innerHTML = '<strong>Ce point</strong><div class="small muted">…</div><button class="btn" data-f="from">Partir d\'ici</button><button class="btn primary" data-f="to">Aller ici</button>';
+  const popup = L.popup({ closeButton: false, minWidth: 200 }).setLatLng(e.latlng).setContent(box).openOn(map);
+  const info = await reverse(ll);
+  box.querySelector('strong').textContent = info.name;
+  box.querySelector('.small').textContent = info.detail;
+  box.onclick = ev => {
+    const f = ev.target.closest('[data-f]')?.dataset.f;
+    if (!f) return;
+    map.closePopup(popup);
+    choose(f, { ...info, icon: '📍', lat: ll[0], lon: ll[1] });
+  };
+});
+
+// --- Panneau et vues -----------------------------------------------------------------------------
+
+const sheet = createSheet($('sheet'));
+
+function show(v, state) {
+  document.querySelectorAll('[data-view]').forEach(el => { el.hidden = el.id !== v; });
+  $('crosshair').hidden = v !== 'pick';
+  // bouton d'action hors du panneau : toujours visible, quelle que soit la hauteur du panneau
+  const cta = v === 'route' && routeState?.routes[routeState.selected].legs.length;
+  $('cta').hidden = !cta;
+  $('sheet').classList.toggle('has-cta', !!cta);
+  if (cta) $('ctaBtn').textContent = routeState.reroute ? 'Suivre cet itinéraire' : 'Démarrer le trajet';
+  requestAnimationFrame(() => {
+    // replié = la vue entière pour le trajet et le choix sur la carte, l'en-tête seulement sinon
+    const top = ['trip', 'pick'].includes(v) ? $(v) : $(v).querySelector('[data-drag]') ?? $(v);
+    const extra = v === 'home' ? $('favChips').offsetHeight + $('msg').offsetHeight + 64 : 28;
+    sheet.setPeek(document.querySelector('.handle-zone').offsetHeight + top.offsetHeight + extra);
+    sheet.set(state ?? 'peek');
+  });
+}
+
+// --- Accueil : départ et arrivée -----------------------------------------------------------------
+
+const places = { from: { here: true }, to: null };
+
+function renderHome() {
+  const set = (id, p, empty) => {
+    const label = $(id).querySelector('.label');
+    label.textContent = p ? placeLabel(p) : empty;
+    label.classList.toggle('empty', !p);
+  };
+  set('fromField', places.from, 'D\'où pars-tu ?');
+  set('toField', places.to, 'Où vas-tu ?');
+  const favs = favorites.all();
+  $('favChips').innerHTML = favs.map((f, i) =>
+    `<button class="chip" data-fav="${i}">${f.slot === 'home' ? '🏠' : f.slot === 'work' ? '💼' : '★'} ${esc(f.label)}</button>`).join('');
+  $('favChips').hidden = !favs.length;
+}
+
+function choose(field, place) {
+  places[field] = place;
+  renderHome();
+  if (places.from && places.to) planTrip();
+  else show('home', 'peek');
+}
+
+const search = field => openSearch({
+  title: field === 'from' ? 'D\'où pars-tu ?' : 'Où vas-tu ?',
+  allowHere: field === 'from',
+  stations: net?.stations ?? [],
+  near: lastPos,
+  onPick: p => choose(field, p),
+  onPickOnMap: () => startPick(field),
+});
+
+$('fromField').onclick = () => search('from');
+$('toField').onclick = () => search('to');
+$('swap').onclick = () => {
+  [places.from, places.to] = [places.to, places.from];
+  renderHome();
+  if (places.from && places.to) planTrip();
+};
+$('favChips').onclick = e => {
+  const f = favorites.all()[+e.target.closest('[data-fav]')?.dataset.fav];
+  if (f) choose('to', f);
+};
+$('profil').value = store.get('profil', 'abonne');
+$('profil').onchange = () => { store.set('profil', $('profil').value); if (routeState) renderRouteView(); };
+
+// Choisir sur la carte : repère fixe, on déplace la carte dessous
+let picking = null;
+const startPick = field => { picking = field; show('pick', 'peek'); };
+const crosshairLatLng = () => {
+  const r = $('crosshair').getBoundingClientRect();
+  const ll = map.containerPointToLatLng([r.left + r.width / 2, r.bottom]);
+  return [ll.lat, ll.lng];
+};
+$('pickCancel').onclick = () => { picking = null; show('home'); };
+$('pickOk').onclick = async () => {
+  const ll = crosshairLatLng(), field = picking;
+  picking = null;
+  const info = await reverse(ll);
+  choose(field, { ...info, icon: '📍', lat: ll[0], lon: ll[1] });
+};
+
+// --- Itinéraire ----------------------------------------------------------------------------------
+
+let routeState = null; // {routes, selected, freshAt, destName, reroute}
+
+async function planTrip() {
+  show('home', 'peek');
+  let from = places.from;
+  if (from.here) {
+    msg('Position…');
+    try { const [lat, lon] = await here(); from = { lat, lon }; } catch { return msg('Position GPS indisponible : choisissez un départ.'); }
+  }
+  const res = await computeRoutes([from.lat, from.lon], [places.to.lat, places.to.lon]);
+  if (!res) return show('home', 'peek');
+  routeState = { ...res, selected: 0, destName: placeLabel(places.to) };
+  await renderRouteView();
+  show('route', 'half');
+}
+
+async function renderRouteView() {
+  const { routes, selected } = routeState;
+  await withGeometry(routes[selected]);
+  $('route').innerHTML = renderRoute({ ...routeState, profile: $('profil').value });
+  $('cta').hidden = !routes[selected].legs.length;
+  drawRoute(routes[selected]);
+}
+
+$('route').onclick = async e => {
+  const alt = e.target.closest('[data-alt]');
+  if (alt) { routeState.selected = +alt.dataset.alt; return renderRouteView(); }
+  const act = e.target.closest('[data-act]')?.dataset.act;
+  if (act === 'close') {
+    const reroute = routeState.reroute;
+    routeState = null;
+    if (reroute) return setTrip(trip);
+    routeLayer.clearLayers();
+    return show('home');
+  }
+};
+
+$('ctaBtn').onclick = async () => {
+  const p = routeState.routes[routeState.selected], { reroute, destName } = routeState;
+  routeState = null;
+  if (!reroute) await ensureAlertPermissions();
+  const riding = !!p.legs[0].from.current;
+  // en cours de route et déjà à vélo : même location, le chrono continue
+  setTrip({ plan: p, destName, leg: 0, phase: riding ? 'velo' : 'retrait', start: riding && trip ? trip.start : Date.now() });
+};
 
 // --- Mode trajet ---------------------------------------------------------------------------------
-// trip = {plan, leg, phase: 'retrait' | 'velo', start} ; enregistré : Android peut fermer l'appli.
+// trip = {plan, destName, leg, phase: 'retrait' | 'velo', start} ; enregistré : Android peut fermer l'appli.
 
 let trip = null;
 
 function setTrip(t) {
   trip = t;
   store.set('trip', t);
-  if (!t) { cancelAlerts(); $('trip').hidden = true; if (current) show(current); return; }
-  if (current !== t.plan) show(t.plan);
-  $('start')?.remove();
+  if (!t) {
+    cancelAlerts();
+    routeLayer.clearLayers();
+    return show('home');
+  }
   renderTrip();
+  show('trip', 'peek');
+  drawRoute(t.plan);
 }
 
-function button(label, onclick, cls = '') {
+const button = (label, onclick, cls = '') => {
   const b = document.createElement('button');
-  b.textContent = label; b.className = cls; b.onclick = onclick;
+  b.className = `btn ${cls}`; b.textContent = label; b.onclick = onclick;
   return b;
-}
-const row = (...els) => { const d = document.createElement('div'); d.className = 'row'; d.append(...els); return d; };
+};
+const row = (...els) => { const d = document.createElement('div'); d.className = 'btn-row'; d.append(...els); return d; };
+const tripMsg = t => { $('tripMsg').textContent = t || ''; };
+const plural = (n, w) => `${n} ${n > 1 ? w.replace(/(\S+)/g, '$1s') : w}`;
 
 function renderTrip() {
   const { plan: p, leg: i, phase } = trip, l = p.legs[i], last = i === p.legs.length - 1;
-  const relay = i > 0;
-  $('trip').hidden = false;
-  $('chrono').hidden = phase !== 'velo';
-  $('alert').textContent = '';
+  $('tripStep').textContent = `Étape ${i + 1} sur ${p.legs.length} · vers ${trip.destName ?? 'l\'arrivée'}`;
+  $('chronoBox').hidden = phase !== 'velo';
   if (phase === 'retrait') {
-    $('tripTitle').textContent = relay ? `Relais à ${l.from.name}` : `Retrait à ${l.from.name}`;
-    $('tripInfo').textContent = relay ? 'Déposez le vélo puis reprenez-le pour une nouvelle location.'
-      : `Puis étape ${i + 1}/${p.legs.length} vers ${l.to.name}.`;
+    const relay = i > 0;
+    $('tripTitle').textContent = `${relay ? 'Relais' : 'Retrait'} · ${l.from.name}`;
+    $('tripInfo').innerHTML = relay ? 'Déposez le vélo puis reprenez-le : nouvelle location, de nouveau 30 min gratuites.'
+      : `${plural(l.from.classic, 'vélo classique annoncé')}${l.from.risky ? ' <span class="badge">⚠ risqué</span>' : ''}`;
     $('tripButtons').replaceChildren(
-      ...(i === 0 && p.walkStartMin ? [row(button('🚶 Y aller (Google Maps)', () => navigate(l.from, 'walking')))] : []),
-      row(button('🔓 Débloquer (appli TBM)', openTbm)),
-      row(button('Vélo retiré : lancer le chrono', onRented, 'main')),
+      ...(i === 0 && p.walkStartMin ? [row(button('🚶 Y aller à pied', () => navigate(l.from, 'walking')))] : []),
+      row(button('🔓 Débloquer', openTbm), button('Vélo retiré', onRented, 'primary')),
       row(button('Aucun vélo ne se débloque', onNoBike, 'warn')),
     );
   } else {
-    $('tripTitle').textContent = `Étape ${i + 1}/${p.legs.length} → ${l.to.name}`;
-    $('tripInfo').innerHTML = (l.to.unusable ? `<span class="risk">⚠ ${esc(l.to.name)} n'annonce plus de place : visez une borne de secours.</span>`
-      : `${last ? 'Dépôt' : 'Relais'} : ${returnTxt(l.to)}`) + backupTxt(l.backups, returnTxt);
+    $('tripTitle').textContent = `${last ? 'Dépôt' : 'Relais'} · ${l.to.name}`;
+    $('tripInfo').innerHTML = (l.to.unusable ? '<span class="badge">⚠ n\'annonce plus de place libre</span> Visez une borne de secours.'
+      : `${Math.round(l.min)} min à vélo · ${plural(l.to.docks, 'place libre')}${l.to.risky ? ' <span class="badge">⚠ risqué</span>' : ''}`) +
+      (l.backups?.length ? `<br>Secours : ${l.backups.map(b => esc(b.name)).join(', ')}` : '');
     $('tripButtons').replaceChildren(
-      row(button('🧭 Naviguer (Google Maps)', () => navigate(l.to))),
-      row(button(last ? 'Vélo déposé : arrivé' : 'Vélo déposé', onDocked, 'main')),
+      row(button('🧭 Naviguer', () => navigate(l.to)), button(last ? 'Vélo déposé · arrivé' : 'Vélo déposé', onDocked, 'primary')),
       row(button('Borne pleine', onFull, 'warn')),
     );
   }
   tick();
-  $('trip').scrollIntoView({ behavior: 'smooth' });
 }
 
 async function onRented() {
@@ -283,10 +396,10 @@ async function onDocked() {
   if (trip.leg === trip.plan.legs.length - 1) {
     const p = trip.plan;
     setTrip(null);
-    return msg(`Arrivé ! Coût : ${cost(p)}.`);
+    return msg(`Arrivé ! Coût : ${cost(p, $('profil').value)}.`);
   }
   const next = { ...trip, leg: trip.leg + 1, phase: 'retrait' };
-  // relire les disponibilités à chaque relais (ADR 0004, sobriété) et prévenir si une borne a changé
+  // disponibilités relues à chaque relais (ADR 0004, sobriété) : prévenir si une borne a changé
   try {
     await loadStatus(true);
     for (const l of next.plan.legs.slice(next.leg)) {
@@ -298,44 +411,73 @@ async function onDocked() {
   setTrip(next);
 }
 
-const posOr = async s => { try { return await here(); } catch { return [s.lat, s.lon]; } };
-
 async function onFull() {
   const l = trip.plan.legs[trip.leg];
   const riding = Math.round((Date.now() - trip.start) / 1000);
-  // même location qui continue : le chrono et les alertes ne bougent pas
-  const res = await compute(await posOr(l.to), trip.plan.dest, { riding, exclude: [l.to.id] });
-  if (res) { current = null; setTrip({ plan: res, leg: 0, phase: 'velo', start: trip.start }); }
+  const res = await computeRoutes(await posOr(l.to), trip.plan.dest, { riding, exclude: [l.to.id] }, tripMsg);
+  if (res) setTrip({ ...trip, plan: await withGeometry(res.routes[0]), leg: 0, phase: 'velo' }); // même location
 }
 
 async function onNoBike() {
   const s = trip.plan.legs[trip.leg].from;
   if (s.id) signal(s.id);
-  const res = await compute(await posOr(s), trip.plan.dest);
-  if (res) {
-    current = null;
-    msg(s.id ? `${s.name} est évitée pendant 2 h.` : '');
-    setTrip({ plan: res, leg: 0, phase: res.legs[0]?.from.current ? 'velo' : 'retrait', start: Date.now() });
-  }
+  const res = await computeRoutes(await posOr(s), trip.plan.dest, {}, tripMsg);
+  if (!res) return;
+  const p = await withGeometry(res.routes[0]);
+  setTrip({ ...trip, plan: p, leg: 0, phase: p.legs[0]?.from.current ? 'velo' : 'retrait', start: Date.now() });
+  tripMsg(s.id ? `${s.name} est évitée pendant 2 h.` : '');
 }
 
-$('stop').onclick = () => setTrip(null);
+$('reroute').onclick = async () => {
+  const l = trip.plan.legs[trip.leg], velo = trip.phase === 'velo';
+  const from = await posOr(velo ? l.to : l.from);
+  const res = await computeRoutes(from, trip.plan.dest,
+    velo ? { riding: Math.round((Date.now() - trip.start) / 1000) } : {}, tripMsg);
+  if (!res) return;
+  routeState = { ...res, selected: 0, destName: trip.destName, reroute: true };
+  await renderRouteView();
+  show('route', 'half');
+};
+$('stop').onclick = () => { if (confirm('Arrêter le trajet ?')) setTrip(null); };
 
 function tick() {
   if (!trip || trip.phase !== 'velo') return;
   const s = Math.floor((Date.now() - trip.start) / 1000);
+  const level = s >= 1500 ? 'alert' : s >= 1200 ? 'warn' : '';
   $('chrono').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-  $('chrono').className = s >= 1500 ? 'alert' : s >= 1200 ? 'warn' : '';
-  $('alert').textContent = s >= 1500 ? 'Déposez le vélo maintenant : gratuit jusqu\'à 30 min.'
-    : s >= 1200 ? 'Préparez-vous à déposer le vélo.' : '';
+  $('chrono').className = `chrono ${level}`;
+  $('freeBar').className = `free-bar ${level}`;
+  $('freeBar').firstElementChild.style.width = `${Math.min(100, s / FREE * 100)}%`;
+  $('freeLeft').textContent = s < FREE ? `Gratuit encore ${Math.ceil((FREE - s) / 60)} min` : 'Location payante depuis 30 min';
+  $('tripAlert').textContent = level === 'alert' ? 'Déposez le vélo maintenant.' : level === 'warn' ? 'Préparez-vous à déposer le vélo.' : '';
+  $('tripAlert').className = `trip-alert ${level}`;
   // hors appli native, pas de notification : on vibre quand l'appli est à l'écran
   if (!LN() && (s === 1200 || s === 1500)) navigator.vibrate?.([300, 100, 300]);
 }
 setInterval(tick, 1000);
 
+// --- Lieu partagé depuis Google Maps (ADR 0010) --------------------------------------------------
+
+const resolveUrl = async url => (await plugins.CapacitorHttp.get({ url })).url;
+
+async function handleShared() {
+  const text = (await plugins.IncomingShare?.take())?.text;
+  if (!text) return;
+  if (trip) return tripMsg('Lieu partagé ignoré : un trajet est en cours.');
+  show('home');
+  msg('Lieu partagé : recherche…');
+  const place = await placeFromShared(text, plugins.CapacitorHttp ? resolveUrl : null);
+  if (!place) return msg('Lieu partagé introuvable dans la métropole.');
+  recents.add(place);
+  choose('to', place);
+}
+plugins.IncomingShare?.addListener('share', handleShared);
+
 // --- Démarrage -----------------------------------------------------------------------------------
 
+renderHome();
 const saved = store.get('trip');
-if (saved?.plan?.legs?.length) setTrip(saved);
+if (saved?.plan?.legs?.length) setTrip(saved); else show('home');
 loadMatrix().catch(() => msg('Matrice des durées introuvable.'));
 loadStatus().catch(() => {});
+handleShared();
