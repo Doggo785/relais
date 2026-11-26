@@ -79,6 +79,8 @@ button { cursor: pointer; border: 0; background: none; padding: 0; }
 .chip.selected { background: var(--accent-soft); color: var(--accent); font-weight: 600; outline: 2px solid var(--accent); outline-offset: -2px; }
 .settings { margin-top: 14px; }
 .settings summary { min-height: 44px; display: flex; align-items: center; color: var(--muted); cursor: pointer; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; white-space: nowrap; }
+.legend i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #fff; box-shadow: 0 0 0 1px var(--line); }
 .settings select { width: 100%; min-height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); padding: 0 12px; }
 
 /* --- Écran de recherche --------------------------------------------------------------------- */

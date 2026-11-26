@@ -1,4 +1,4 @@
-import { plan, alternatives, parseStatus, NoRoute, FREE } from './plan.js';
+import { plan, alternatives, parseStatus, confidence, NoRoute, FREE } from './plan.js';
 import { placeFromShared, reverse } from './places.js';
 import { createSheet } from './sheet.js';
 import { openSearch, favorites, recents, placeLabel } from './search-screen.js';
@@ -37,7 +37,11 @@ async function loadMatrix() {
     try {
       const m = await getJson(url, 5000);
       // fichier venu du réseau : on vérifie sa forme avant de s'en servir
-      if (Array.isArray(m.stations) && Array.isArray(m.dur) && m.dur.length === m.stations.length) return net = m;
+      if (Array.isArray(m.stations) && Array.isArray(m.dur) && m.dur.length === m.stations.length) {
+        net = m;
+        drawStations();
+        return net;
+      }
     } catch { /* source suivante */ }
   }
   throw new Error('Matrice des durées introuvable');
@@ -50,6 +54,7 @@ async function loadStatus(force = false) {
     .filter(v => v.propulsion_type === 'human').map(v => v.vehicle_type_id));
   status = parseStatus((await getJson(GBFS('station_status'))).data.stations, classicIds);
   statusAt = Date.now();
+  drawStations();
 }
 
 function signaled() {
@@ -148,6 +153,28 @@ L.control.attribution({ prefix: false, position: 'topright' }).addTo(map);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">contributeurs OpenStreetMap</a>',
 }).addTo(map);
+// Bornes : petits points colorés selon leur niveau de confiance, sous le tracé, cachés de loin
+map.createPane('stations').style.zIndex = 350;
+const stationLayer = L.layerGroup();
+const stationRenderer = L.canvas({ pane: 'stations' });
+const CONF_COLORS = { ok: '#16a34a', mid: '#f59e0b', low: '#dc2626', off: '#9ca3af' };
+const STATION_MIN_ZOOM = 13;
+
+function drawStations() {
+  if (!net || !status) return;
+  stationLayer.clearLayers();
+  for (const s of net.stations) {
+    const x = status[s.id];
+    L.circleMarker([s.lat, s.lon], { renderer: stationRenderer, radius: 4.5, weight: 1.5, color: '#fff',
+      fillColor: CONF_COLORS[confidence(x)], fillOpacity: 0.95 })
+      .bindPopup(`<strong>${esc(s.name)}</strong><br>${x ? `${x.classic} vélo${x.classic > 1 ? 's' : ''} classique${x.classic > 1 ? 's' : ''} · ${x.docks} place${x.docks > 1 ? 's' : ''} libre${x.docks > 1 ? 's' : ''}` : 'Muette ou hors service'}`)
+      .addTo(stationLayer);
+  }
+}
+const toggleStations = () => map.getZoom() >= STATION_MIN_ZOOM ? stationLayer.addTo(map) : stationLayer.remove();
+map.on('zoomend', toggleStations);
+toggleStations();
+
 const routeLayer = L.layerGroup().addTo(map);
 let posMarker = null;
 
