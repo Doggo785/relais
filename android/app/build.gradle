@@ -1,5 +1,9 @@
 apply plugin: 'com.android.application'
 
+// Version unique : celle de package.json, tenue par release-please. 1.4.2 → versionCode 10402.
+def appVersion = new groovy.json.JsonSlurper().parse(rootProject.file('../package.json')).version
+def (vMajor, vMinor, vPatch) = appVersion.tokenize('.').collect { it.toInteger() }
+
 android {
     namespace = "io.github.doggo785.relais"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +11,8 @@ android {
         applicationId "io.github.doggo785.relais"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode vMajor * 10000 + vMinor * 100 + vPatch
+        versionName appVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +20,20 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Clé de signature fournie par l'environnement (secrets GitHub en CI) ; sans elle, APK release non signé.
+    signingConfigs {
+        release {
+            if (System.getenv('RELAIS_KEYSTORE')) {
+                storeFile file(System.getenv('RELAIS_KEYSTORE'))
+                storePassword System.getenv('RELAIS_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('RELAIS_KEY_ALIAS')
+                keyPassword System.getenv('RELAIS_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig System.getenv('RELAIS_KEYSTORE') ? signingConfigs.release : null
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
