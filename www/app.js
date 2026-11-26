@@ -362,13 +362,27 @@ $('ctaBtn').onclick = async () => {
   if (!reroute) await ensureAlertPermissions();
   const riding = !!p.legs[0].from.current;
   // en cours de route et déjà à vélo : même location, le chrono continue
-  setTrip({ plan: p, destName, leg: 0, phase: riding ? 'velo' : 'retrait', start: riding && trip ? trip.start : Date.now() });
+  const next = { plan: p, destName, leg: 0, phase: riding ? 'velo' : 'retrait', start: riding && trip ? trip.start : Date.now() };
+  if (trip) advance(next); else setTrip(next); // changement d'itinéraire en route : on peut revenir à l'ancien
 };
 
 // --- Mode trajet ---------------------------------------------------------------------------------
-// trip = {plan, destName, leg, phase: 'retrait' | 'velo', start} ; enregistré : Android peut fermer l'appli.
+// trip = {plan, destName, leg, phase: 'retrait' | 'velo', start, history} ; enregistré : Android peut fermer l'appli.
+// history garde les états précédents pour revenir en arrière après une fausse manip.
 
 let trip = null;
+const HISTORY_MAX = 20;
+/** Avance le trajet en gardant l'état courant dans l'historique. */
+const advance = changes => setTrip({ ...trip, ...changes,
+  history: [...(trip.history ?? []), { ...trip, history: undefined }].slice(-HISTORY_MAX) });
+
+async function onBack() {
+  const prev = trip.history.at(-1);
+  setTrip({ ...prev, history: trip.history.slice(0, -1) });
+  // les alertes suivent l'état restauré : chrono de la location d'alors, ou rien si pas encore à vélo
+  if (prev.phase === 'velo') await scheduleAlerts(prev.start); else await cancelAlerts();
+  tripMsg('Retour à l\'étape précédente.');
+}
 
 function setTrip(t) {
   trip = t;
@@ -396,6 +410,7 @@ function renderTrip() {
   const { plan: p, leg: i, phase } = trip, l = p.legs[i], last = i === p.legs.length - 1;
   $('tripStep').textContent = `Étape ${i + 1} sur ${p.legs.length} · vers ${trip.destName ?? 'l\'arrivée'}`;
   $('chronoBox').hidden = phase !== 'velo';
+  $('back').hidden = !trip.history?.length;
   if (phase === 'retrait') {
     const relay = i > 0;
     $('tripTitle').textContent = `${relay ? 'Relais' : 'Retrait'} · ${l.from.name}`;
@@ -420,7 +435,7 @@ function renderTrip() {
 }
 
 async function onRented() {
-  setTrip({ ...trip, phase: 'velo', start: Date.now() });
+  advance({ phase: 'velo', start: Date.now() });
   await scheduleAlerts(trip.start);
 }
 
@@ -431,24 +446,24 @@ async function onDocked() {
     setTrip(null);
     return msg(`Arrivé ! Coût : ${cost(p, $('profil').value)}.`);
   }
-  const next = { ...trip, leg: trip.leg + 1, phase: 'retrait' };
+  const next = { leg: trip.leg + 1, phase: 'retrait' };
   // disponibilités relues à chaque relais (ADR 0004, sobriété) : prévenir si une borne a changé
   try {
     await loadStatus(true);
-    for (const l of next.plan.legs.slice(next.leg)) {
+    for (const l of trip.plan.legs.slice(next.leg)) {
       const s = status[l.to.id];
       l.to.unusable = !s || !s.returning || s.docks < 1;
       if (s) Object.assign(l.to, { docks: s.docks, risky: s.docks === 1 });
     }
   } catch { /* on garde les dernières données connues */ }
-  setTrip(next);
+  advance(next);
 }
 
 async function onFull() {
   const l = trip.plan.legs[trip.leg];
   const riding = Math.round((Date.now() - trip.start) / 1000);
   const res = await computeRoutes(await posOr(l.to), trip.plan.dest, { riding, exclude: [l.to.id] }, tripMsg);
-  if (res) setTrip({ ...trip, plan: await withGeometry(res.routes[0]), leg: 0, phase: 'velo' }); // même location
+  if (res) advance({ plan: await withGeometry(res.routes[0]), leg: 0, phase: 'velo' }); // même location
 }
 
 async function onNoBike() {
@@ -457,7 +472,7 @@ async function onNoBike() {
   const res = await computeRoutes(await posOr(s), trip.plan.dest, {}, tripMsg);
   if (!res) return;
   const p = await withGeometry(res.routes[0]);
-  setTrip({ ...trip, plan: p, leg: 0, phase: p.legs[0]?.from.current ? 'velo' : 'retrait', start: Date.now() });
+  advance({ plan: p, leg: 0, phase: p.legs[0]?.from.current ? 'velo' : 'retrait', start: Date.now() });
   tripMsg(s.id ? `${s.name} est évitée pendant 2 h.` : '');
 }
 
@@ -471,6 +486,7 @@ $('reroute').onclick = async () => {
   await renderRouteView();
   show('route', 'half');
 };
+$('back').onclick = onBack;
 $('stop').onclick = () => { if (confirm('Arrêter le trajet ?')) setTrip(null); };
 
 function tick() {
