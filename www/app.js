@@ -139,10 +139,10 @@ async function ensureAlertPermissions() {
 
 const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([44.8378, -0.5792], 13);
 L.control.attribution({ prefix: false, position: 'topright' }).addTo(map);
-// Plan IGN : gratuit, sans clé (Licence Ouverte) ; le thème sombre l'inverse en CSS (style.css)
-L.tileLayer('https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2' +
-  '&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
-  maxZoom: 19, attribution: '© <a href="https://www.ign.fr/">IGN</a>',
+// OpenStreetMap : tuiles 2,5× plus légères que le Plan IGN (réseau lent) ; l'appli s'identifie par son
+// User-Agent (capacitor.config.json) comme le demande la politique d'usage OSM. Thème sombre : inversé en CSS.
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">contributeurs OpenStreetMap</a>',
 }).addTo(map);
 const routeLayer = L.layerGroup().addTo(map);
 let posMarker = null;

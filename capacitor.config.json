@@ -1,5 +1,6 @@
 {
   "appId": "io.github.doggo785.relais",
   "appName": "Relais",
-  "webDir": "www"
+  "webDir": "www",
+  "appendUserAgent": "Relais/0.1 (+https://github.com/Doggo785/relais)"
 }
