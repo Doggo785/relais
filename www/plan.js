@@ -47,8 +47,9 @@ export function parseStatus(gbfsStations, classicIds, now = Date.now()) {
  * opts.riding : secondes déjà roulées sur la location en cours (« Borne pleine ») ; le départ est
  *   alors un vélo en main à `origin`.
  * opts.exclude : ids de bornes à éviter (borne pleine, bornes signalées).
+ * opts.relayPenalty : coût ajouté à chaque relais, sans changer la durée réelle (alternative « Moins de relais »).
  */
-export function plan(stations, status, dur, origin, dest, { riding = null, exclude = new Set() } = {}) {
+export function plan(stations, status, dur, origin, dest, { riding = null, exclude = new Set(), relayPenalty = 0 } = {}) {
   const n = stations.length;
   const st = stations.map(s => exclude.has(s.id) ? null : status[s.id]);
   const canRent = i => !!st[i]?.renting && st[i].classic >= 1;      // premier retrait
@@ -82,7 +83,7 @@ export function plan(stations, status, dur, origin, dest, { riding = null, exclu
     } else {
       const d = distM(pt(stations[u]), dest);
       if (d <= WALK_MAX_M) yield [E, walkS(d), walkS(d)];
-      if (st[u]?.renting) yield [n + u, RELAY_S, RELAY_S]; // on reprend son propre vélo (ADR 0008)
+      if (st[u]?.renting) yield [n + u, RELAY_S + relayPenalty, RELAY_S]; // on reprend son propre vélo (ADR 0008)
     }
   }
 
@@ -132,4 +133,26 @@ export function plan(stations, status, dur, origin, dest, { riding = null, exclu
     relays: Math.max(legs.length - 1, 0),
     newRentals: riding === null ? legs.length : Math.max(legs.length - 1, 0),
     legs };
+}
+
+export const ALT_MAX_MIN = 10;
+
+/** Itinéraires alternatifs (voir GLOSSARY.md) : « Autres bornes » puis « Moins de relais », au plus 10 min de plus. */
+export function alternatives(stations, status, dur, origin, dest, opts, best) {
+  const key = p => p.legs.map(l => l.to.id).join();
+  const relayIds = best.legs.slice(0, -1).map(l => l.to.id);
+  const out = [];
+  const add = (label, extra, keep = () => true) => {
+    let p;
+    try { p = plan(stations, status, dur, origin, dest, { ...opts, ...extra }); } catch (e) {
+      if (e instanceof NoRoute) return;
+      throw e;
+    }
+    if (keep(p) && p.legs.length && p.totalMin <= best.totalMin + ALT_MAX_MIN && ![best, ...out].some(o => key(o) === key(p))) {
+      out.push({ ...p, label });
+    }
+  };
+  if (relayIds.length) add('Autres bornes', { exclude: new Set([...(opts.exclude ?? []), ...relayIds]) });
+  if (best.relays) add('Moins de relais', { relayPenalty: 600 }, p => p.relays < best.relays);
+  return out;
 }

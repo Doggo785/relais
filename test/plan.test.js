@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { plan, parseStatus, NoRoute, LEG_MAX, FREE, bikeEstS, distM } from '../www/plan.js';
+import { plan, alternatives, parseStatus, NoRoute, LEG_MAX, FREE, ALT_MAX_MIN, bikeEstS, distM } from '../www/plan.js';
 
 const MERIGNAC = [44.8386, -0.6436];
 const LORMONT = [44.8790, -0.5217];
@@ -133,4 +133,30 @@ test('flux GBFS : vélos classiques par type, bornes muettes ignorées', () => {
     { station_id: 'muette', last_reported: '2026-11-26T13:00:00Z', is_installed: true, is_renting: true, is_returning: true, num_docks_available: 3 },
   ], new Set(['classic']), now);
   assert.deepEqual(st, { a: { classic: 2, docks: 3, renting: true, returning: true } });
+});
+
+test('alternative « Autres bornes » : aucun relais en commun', () => {
+  const net = lineNetwork(23); // deux fois plus de bornes : il existe d'autres relais possibles
+  const best = route(net);
+  const alts = alternatives(net.stations, net.status, net.dur, MERIGNAC, LORMONT, {}, best);
+  const other = alts.find(a => a.label === 'Autres bornes');
+  assert.ok(other, 'alternative trouvée');
+  const relays = p => p.legs.slice(0, -1).map(l => l.to.id);
+  assert.ok(!relays(other).some(id => relays(best).includes(id)));
+  assert.ok(other.totalMin <= best.totalMin + ALT_MAX_MIN);
+  checkChain(other);
+});
+
+test('alternative « Moins de relais » seulement si elle en a vraiment moins', () => {
+  const net = lineNetwork(23);
+  const best = route(net);
+  for (const a of alternatives(net.stations, net.status, net.dur, MERIGNAC, LORMONT, {}, best)) {
+    if (a.label === 'Moins de relais') assert.ok(a.relays < best.relays);
+  }
+});
+
+test('pas d\'alternative pour un trajet à pied', () => {
+  const net = lineNetwork();
+  const best = route(net, MERIGNAC, [MERIGNAC[0] + 0.002, MERIGNAC[1]]);
+  assert.deepEqual(alternatives(net.stations, net.status, net.dur, MERIGNAC, [MERIGNAC[0] + 0.002, MERIGNAC[1]], {}, best), []);
 });
