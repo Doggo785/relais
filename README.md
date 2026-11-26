@@ -39,5 +39,15 @@ dépôts) ; iOS.
 
 ## Publication
 
-Dépôt GitHub public créé une fois la v1 testée. APK signé par GitHub Actions dans les Releases,
-versions et changelog par release-please (Conventional Commits). Licence MIT.
+- Messages de commit en anglais, au format Conventional Commits : release-please en déduit la version
+  et le changelog, puis ouvre une pull request « chore(main): release x.y.z ».
+- Fusionner cette pull request publie la GitHub Release ; le workflow `release` y attache l'APK signé
+  `relais-vX.Y.Z.apk` (installable directement ou via Obtainium). Version Android = celle de
+  `package.json` (1.4.2 → versionCode 10402).
+- Clé de signature : `scripts/setup-signing-key.sh`, une seule fois, depuis le dossier du dépôt. Il crée
+  la clé hors du dépôt, remplit les secrets GitHub et fait sauvegarder la clé. **La perdre empêche toute
+  mise à jour** de l'appli installée.
+- Matrice des durées : le workflow `matrix` la recalcule le 1er de chaque mois et la publie sur GitHub
+  Pages (Settings → Pages → Source : GitHub Actions) ; lançable à la main (`gh workflow run matrix`).
+  GitHub suspend les tâches planifiées après 60 jours sans activité sur le dépôt.
+- Licence MIT.
