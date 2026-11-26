@@ -6,8 +6,8 @@ import { renderRoute, cost, LEG_COLORS } from './route-view.js';
 
 const GBFS = f => `https://bdx.mecatran.com/utw/ws/gbfs/bordeaux/v3/${f}.json?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt`;
 const OSRM = 'https://routing.openstreetmap.de/routed-bike';
-// shortcut: matrice livrée avec l'APK seulement ; ajouter l'URL GitHub Pages quand le dépôt existera (ADR 0003).
-const MATRIX_URLS = ['matrix.json'];
+// Matrice à jour publiée chaque mois sur GitHub Pages (ADR 0003), copie de l'APK en secours
+const MATRIX_URLS = ['https://doggo785.github.io/relais/matrix.json', 'matrix.json'];
 const TBM_PACKAGE = 'com.infotbm.tbm';
 const SIGNAL_MS = 2 * 3600e3;
 
@@ -26,15 +26,19 @@ const plugins = cap?.isNativePlatform?.() ? Object.fromEntries(
 
 let net = null, status = null, statusAt = 0, classicIds = null;
 
-async function getJson(url) {
-  const r = await fetch(url);
+async function getJson(url, timeoutMs = 15000) {
+  const r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   if (!r.ok) throw new Error(`${r.status} ${url}`);
   return r.json();
 }
 
 async function loadMatrix() {
   for (const url of MATRIX_URLS) {
-    try { return net = await getJson(url); } catch { /* source suivante */ }
+    try {
+      const m = await getJson(url, 5000);
+      // fichier venu du réseau : on vérifie sa forme avant de s'en servir
+      if (Array.isArray(m.stations) && Array.isArray(m.dur) && m.dur.length === m.stations.length) return net = m;
+    } catch { /* source suivante */ }
   }
   throw new Error('Matrice des durées introuvable');
 }
