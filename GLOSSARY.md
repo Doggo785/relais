@@ -48,7 +48,7 @@ Trajet complet du départ à l'arrivée : marche, étapes à vélo, relais, marc
 _Avoid_: trajet (ambigu), route
 
 **Itinéraire alternatif**:
-Itinéraire proposé en plus du meilleur, au plus 10 minutes plus long : soit sans aucune borne de relais commune avec lui (« Autres bornes »), soit avec moins de relais (« Moins de relais »).
+Itinéraire proposé en plus du meilleur, au plus 10 minutes plus long : sans aucune borne risquée quand le meilleur en a (« Plus sûr »), sans aucune borne de relais commune avec lui (« Autres bornes »), ou avec moins de relais (« Moins de relais »).
 _Avoid_: variante, option
 
 **Étape**:

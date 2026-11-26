@@ -50,12 +50,14 @@ export function parseStatus(gbfsStations, classicIds, now = Date.now()) {
  *   alors un vélo en main à `origin`.
  * opts.exclude : ids de bornes à éviter (borne pleine, bornes signalées).
  * opts.relayPenalty : coût ajouté à chaque relais, sans changer la durée réelle (alternative « Moins de relais »).
+ * opts.safeOnly : n'utiliser que des bornes sûres, au moins 2 vélos ou places (alternative « Plus sûr »).
  */
-export function plan(stations, status, dur, origin, dest, { riding = null, exclude = new Set(), relayPenalty = 0 } = {}) {
+export function plan(stations, status, dur, origin, dest, { riding = null, exclude = new Set(), relayPenalty = 0, safeOnly = false } = {}) {
   const n = stations.length;
   const st = stations.map(s => exclude.has(s.id) ? null : status[s.id]);
-  const canRent = i => !!st[i]?.renting && st[i].classic >= 1;      // premier retrait
-  const canReturn = i => !!st[i]?.returning && st[i].docks >= 1;
+  const min = safeOnly ? 2 : 1;
+  const canRent = i => !!st[i]?.renting && st[i].classic >= min;      // premier retrait
+  const canReturn = i => !!st[i]?.returning && st[i].docks >= min;
   const rentRisk = i => supplyPenalty(st[i].classic);
   const returnRisk = i => supplyPenalty(st[i].docks);
 
@@ -139,7 +141,7 @@ export function plan(stations, status, dur, origin, dest, { riding = null, exclu
 
 export const ALT_MAX_MIN = 10;
 
-/** Itinéraires alternatifs (voir GLOSSARY.md) : « Autres bornes » puis « Moins de relais », au plus 10 min de plus. */
+/** Itinéraires alternatifs (voir GLOSSARY.md) : « Plus sûr », « Autres bornes », « Moins de relais », au plus 10 min de plus. */
 export function alternatives(stations, status, dur, origin, dest, opts, best) {
   const key = p => p.legs.map(l => l.to.id).join();
   const relayIds = best.legs.slice(0, -1).map(l => l.to.id);
@@ -154,6 +156,8 @@ export function alternatives(stations, status, dur, origin, dest, opts, best) {
       out.push({ ...p, label });
     }
   };
+  const risky = p => p.legs.some((l, i) => l.to.risky || (i === 0 && !l.from.current && l.from.risky));
+  if (risky(best)) add('Plus sûr', { safeOnly: true });
   if (relayIds.length) add('Autres bornes', { exclude: new Set([...(opts.exclude ?? []), ...relayIds]) });
   if (best.relays) add('Moins de relais', { relayPenalty: 600 }, p => p.relays < best.relays);
   return out;

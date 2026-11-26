@@ -168,3 +168,21 @@ test('à temps presque égal, la borne la mieux fournie est préférée', () => 
   addStation(net, { id: 'fournie', name: 'Fournie', lat: MERIGNAC[0] + 0.001, lon: MERIGNAC[1] }, { classic: 4, docks: 4, renting: true, returning: true });
   assert.equal(route(net).legs[0].from.id, 'fournie');
 });
+
+test('alternative « Plus sûr » quand l\'itinéraire passe par une borne risquée', () => {
+  const net = lineNetwork();
+  net.status['0'].classic = 1;
+  addStation(net, { id: 'loin', name: 'Loin', lat: MERIGNAC[0] + 0.004, lon: MERIGNAC[1] }, { classic: 5, docks: 4, renting: true, returning: true });
+  const best = route(net);
+  assert.equal(best.legs[0].from.id, '0'); // la borne risquée reste la plus rapide…
+  const safe = alternatives(net.stations, net.status, net.dur, MERIGNAC, LORMONT, {}, best).find(a => a.label === 'Plus sûr');
+  assert.ok(safe, '…mais une alternative sûre est proposée');
+  assert.equal(safe.legs[0].from.id, 'loin');
+  assert.ok(safe.legs.every(l => !l.to.risky) && !safe.legs[0].from.risky);
+});
+
+test('pas d\'alternative « Plus sûr » si l\'itinéraire est déjà sûr', () => {
+  const net = lineNetwork();
+  const best = route(net);
+  assert.ok(!alternatives(net.stations, net.status, net.dur, MERIGNAC, LORMONT, {}, best).some(a => a.label === 'Plus sûr'));
+});
