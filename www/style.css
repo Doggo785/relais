@@ -1,4 +1,4 @@
-/* Relais : identité propre (ADR 0009), thème clair/sombre selon Android. */
+/* Relais : identité propre, thème clair/sombre selon Android. */
 :root {
   --bg: #ffffff; --surface: #f3f4f7; --surface-2: #e9ebf0; --text: #14161a; --muted: #5c6370; --line: #e1e4ea;
   --accent: #5b3df5; --accent-soft: #ece8ff; --on-accent: #ffffff;

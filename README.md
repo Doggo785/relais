@@ -3,8 +3,7 @@
 Itinéraires Le Vélo par TBM (Bordeaux) découpés en étapes de 25 min maximum, pour que chaque
 location reste dans les 30 minutes gratuites.
 
-Appli Android (Capacitor), sans serveur. Décisions : [`docs/adr/`](docs/adr/). Vocabulaire :
-[`GLOSSARY.md`](GLOSSARY.md). Règles TBM sourcées : [`docs/regles-tbm.md`](docs/regles-tbm.md).
+Appli Android (Capacitor), sans serveur.
 
 ## Développer
 

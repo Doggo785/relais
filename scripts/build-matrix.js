@@ -1,5 +1,5 @@
 // Calcule la matrice des durées vélo entre toutes les bornes (OSRM) : node scripts/build-matrix.js <sortie.json>
-// Lancé chaque mois par GitHub Actions (ADR 0003).
+// Lancé chaque mois par GitHub Actions.
 import { writeFileSync } from 'node:fs';
 
 const GBFS = 'https://bdx.mecatran.com/utw/ws/gbfs/bordeaux/v3/station_information.json?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt';

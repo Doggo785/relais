@@ -6,7 +6,7 @@ import { renderRoute, cost, LEG_COLORS } from './route-view.js';
 
 const GBFS = f => `https://bdx.mecatran.com/utw/ws/gbfs/bordeaux/v3/${f}.json?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt`;
 const OSRM = 'https://routing.openstreetmap.de/routed-bike';
-// Matrice à jour publiée chaque mois sur GitHub Pages (ADR 0003), copie de l'APK en secours
+// Matrice à jour publiée chaque mois sur GitHub Pages, copie de l'APK en secours
 const MATRIX_URLS = ['https://doggo785.github.io/relais/matrix.json', 'matrix.json'];
 const TBM_PACKAGE = 'com.infotbm.tbm';
 const SIGNAL_MS = 2 * 3600e3;
@@ -456,7 +456,7 @@ async function onDocked() {
     return msg(`Arrivé ! Coût : ${cost(p, $('profil').value)}.`);
   }
   const next = { leg: trip.leg + 1, phase: 'retrait' };
-  // disponibilités relues à chaque relais (ADR 0004, sobriété) : prévenir si une borne a changé
+  // disponibilités relues à chaque relais (sobriété) : prévenir si une borne a changé
   try {
     await loadStatus(true);
     for (const l of trip.plan.legs.slice(next.leg)) {
@@ -514,7 +514,7 @@ function tick() {
 }
 setInterval(tick, 1000);
 
-// --- Lieu partagé depuis Google Maps (ADR 0010) --------------------------------------------------
+// --- Lieu partagé depuis Google Maps --------------------------------------------------
 
 const resolveUrl = async url => (await plugins.CapacitorHttp.get({ url })).url;
 

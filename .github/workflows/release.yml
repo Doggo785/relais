@@ -1,4 +1,4 @@
-# release-please tient la version et le changelog (ADR 0007) ; quand une version sort,
+# release-please tient la version et le changelog ; quand une version sort,
 # on construit l'APK signé et on l'attache à la GitHub Release.
 name: release
 

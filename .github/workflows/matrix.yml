@@ -1,4 +1,4 @@
-# Recalcule chaque mois la matrice des durées vélo et la publie sur GitHub Pages (ADR 0003).
+# Recalcule chaque mois la matrice des durées vélo et la publie sur GitHub Pages.
 # L'appli la télécharge au démarrage et garde la copie de l'APK en secours.
 name: matrix
 

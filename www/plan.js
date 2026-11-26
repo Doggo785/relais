@@ -1,11 +1,10 @@
 // Calcul d'itinéraire Relais : pur (aucun accès réseau), partagé par l'appli et les tests.
-// Vocabulaire : voir GLOSSARY.md. Règles : docs/adr/0006 et 0008.
 
 export const FREE = 30 * 60;        // secondes gratuites par location
 export const LEG_MAX = 25 * 60;     // 5 min de marge
 export const RELAY_S = 90;          // déposer puis reprendre son vélo
 // Pénalité selon les vélos (retrait) ou places (dépôt) annoncés : à quelques minutes près, on préfère la
-// borne la mieux fournie (ADR 0006). 1 seul = borne risquée.
+// borne la mieux fournie. 1 seul = borne risquée.
 export const supplyPenalty = n => n <= 1 ? 300 : n === 2 ? 120 : 0;
 export const WALK_MAX_M = 1500;     // marche max (vol d'oiseau) vers/depuis une borne
 export const BACKUP_M = 400;
@@ -13,7 +12,7 @@ export const MUTE_S = 30 * 60;      // borne muette au-delà
 
 export class NoRoute extends Error {}
 
-/** Niveau de confiance d'une borne (GLOSSARY.md) : d'après le moins fourni de ses vélos classiques et places libres. */
+/** Niveau de confiance d'une borne : d'après le moins fourni de ses vélos classiques et places libres. */
 export function confidence(s) {
   if (!s || !s.renting || !s.returning) return 'off';
   const n = Math.min(s.classic, s.docks);
@@ -94,7 +93,7 @@ export function plan(stations, status, dur, origin, dest, { riding = null, exclu
     } else {
       const d = distM(pt(stations[u]), dest);
       if (d <= WALK_MAX_M) yield [E, walkS(d), walkS(d)];
-      if (st[u]?.renting) yield [n + u, RELAY_S + relayPenalty, RELAY_S]; // on reprend son propre vélo (ADR 0008)
+      if (st[u]?.renting) yield [n + u, RELAY_S + relayPenalty, RELAY_S]; // on reprend son propre vélo
     }
   }
 
@@ -148,7 +147,7 @@ export function plan(stations, status, dur, origin, dest, { riding = null, exclu
 
 export const ALT_MAX_MIN = 10;
 
-/** Itinéraires alternatifs (voir GLOSSARY.md) : « Plus sûr », « Autres bornes », « Moins de relais », au plus 10 min de plus. */
+/** Itinéraires alternatifs : « Plus sûr », « Autres bornes », « Moins de relais », au plus 10 min de plus. */
 export function alternatives(stations, status, dur, origin, dest, opts, best) {
   const key = p => p.legs.map(l => l.to.id).join();
   const relayIds = best.legs.slice(0, -1).map(l => l.to.id);

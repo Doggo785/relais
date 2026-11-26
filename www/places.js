@@ -1,4 +1,4 @@
-// Recherche de lieux (ADR 0010) : bornes (sur le téléphone), IGN (adresses), Photon (lieux nommés).
+// Recherche de lieux : bornes (sur le téléphone), IGN (adresses), Photon (lieux nommés).
 import { distM } from './plan.js';
 
 const BBOX = { s: 44.6, n: 45.1, w: -0.95, e: -0.25 }; // Bordeaux Métropole, large
