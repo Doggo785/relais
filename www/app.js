@@ -377,6 +377,15 @@ const advance = changes => setTrip({ ...trip, ...changes,
   history: [...(trip.history ?? []), { ...trip, history: undefined }].slice(-HISTORY_MAX) });
 
 async function onBack() {
+  if (!trip.history?.length) { // tout début du trajet : retour à l'aperçu de l'itinéraire
+    const { plan: p, destName } = trip;
+    await cancelAlerts();
+    trip = null;
+    store.set('trip', null);
+    routeState = { routes: [p], selected: 0, freshAt: statusAt || Date.now(), destName };
+    await renderRouteView();
+    return show('route', 'half');
+  }
   const prev = trip.history.at(-1);
   setTrip({ ...prev, history: trip.history.slice(0, -1) });
   // les alertes suivent l'état restauré : chrono de la location d'alors, ou rien si pas encore à vélo
@@ -410,7 +419,7 @@ function renderTrip() {
   const { plan: p, leg: i, phase } = trip, l = p.legs[i], last = i === p.legs.length - 1;
   $('tripStep').textContent = `Étape ${i + 1} sur ${p.legs.length} · vers ${trip.destName ?? 'l\'arrivée'}`;
   $('chronoBox').hidden = phase !== 'velo';
-  $('back').hidden = !trip.history?.length;
+  $('back').setAttribute('aria-label', trip.history?.length ? 'Revenir à l\'étape précédente' : 'Revenir à l\'itinéraire');
   if (phase === 'retrait') {
     const relay = i > 0;
     $('tripTitle').textContent = `${relay ? 'Relais' : 'Retrait'} · ${l.from.name}`;

@@ -54,10 +54,13 @@
     </div>
 
     <div id="trip" data-view hidden>
-      <div data-drag>
-        <div class="trip-step" id="tripStep"></div>
-        <div class="trip-title" id="tripTitle"></div>
-        <div class="trip-info" id="tripInfo"></div>
+      <div data-drag class="trip-head">
+        <button class="icon-btn" id="back" aria-label="Revenir à l'étape précédente">‹</button>
+        <div>
+          <div class="trip-step" id="tripStep"></div>
+          <div class="trip-title" id="tripTitle"></div>
+          <div class="trip-info" id="tripInfo"></div>
+        </div>
       </div>
       <div id="chronoBox" hidden>
         <div class="chrono" id="chrono" aria-live="off">00:00</div>
@@ -67,7 +70,6 @@
       </div>
       <div id="tripButtons"></div>
       <div id="tripMsg" class="small muted" role="status" aria-live="polite"></div>
-      <button class="link-btn" id="back" hidden>← Revenir à l'étape précédente</button>
       <button class="link-btn" id="reroute">Changer d'itinéraire</button>
       <button class="link-btn" id="stop">Arrêter le trajet</button>
     </div>

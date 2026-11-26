@@ -133,6 +133,8 @@ button { cursor: pointer; border: 0; background: none; padding: 0; }
 .sheet.has-cta .sheet-body { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 
 /* --- Mode trajet ---------------------------------------------------------------------------- */
+.trip-head { display: flex; gap: 6px; align-items: flex-start; margin-left: -10px; }
+.trip-head #back { font-size: 34px; line-height: 1; background: var(--surface); margin-top: 2px; }
 .trip-step { font-size: 14px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
 .trip-title { font-size: 24px; font-weight: 700; line-height: 1.2; margin: 4px 0; }
 .trip-info { color: var(--muted); }
